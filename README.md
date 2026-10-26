@@ -7,8 +7,8 @@
 Fill in the remaining links and your name before submitting:
 
 - **Student name:** Add your name
-- **GitHub repository:** Add the public repository URL after pushing the source
-- **Deployed application:** Add the live URL after deployment
+- **GitHub repository:** [https://github.com/ranjit-05/vidbox](https://github.com/ranjit-05/vidbox)
+- **Deployed application:** [https://vidbox-delta.vercel.app](https://vidbox-delta.vercel.app)
 - **Demo video:** Add the shareable video URL after recording
 
 ## Problem and target users
@@ -251,14 +251,16 @@ The repository’s `.gitignore` excludes `.env` files, `node_modules`, build out
 ## Verification status
 
 - **Verified locally:** frontend production build; account sign-in; demo purchase; film appearing in the user’s library; sample video playback.
-- **Still required for a complete submission:** configure and test Razorpay test credentials/webhooks; configure private S3 with authorized video files; push the source to GitHub; deploy the app; add student and project links above; record the demo video; and complete the official submission form.
+- **Verified:** the deployed application is reachable; Razorpay test-mode success and failure checkouts work; webhook deliveries work; and the purchased film appears in the deployed user’s library.
+- **Still required for a complete submission:** add the student name and demo-video link above; optionally configure private S3 with authorized video files to demonstrate protected playback; record the demo video; and complete the official submission form.
 
 ## End-term submission checklist
 
 Before submission:
 
-- [ ] Add student name, GitHub repository, deployed app, and demo video links near the top of this README.
+- [ ] Add student name and demo-video link near the top of this README.
 - [ ] Ensure the repository is accessible to evaluators and contains no secrets.
+- [x] Add the GitHub repository and deployed app links.
 - [ ] Verify the deployed app and demo video links in a private browser window.
 - [ ] Record a 3–5 minute video showing the problem, target user, main workflows, and the working app.
 - [ ] Complete the [official project submission form](https://forms.gle/sBy4sfqyiRG2Zpom9).
