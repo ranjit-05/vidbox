@@ -22,7 +22,7 @@ Independent films can be difficult to discover in large streaming catalogs, whil
 - Create an account or sign in. Passwords are hashed with bcrypt, and authenticated API requests use signed JWTs.
 - Buy films with a local demo checkout or Razorpay Standard Checkout.
 - View purchased films in a private library.
-- Request playback for a film they own. When S3 is configured, the API returns a short-lived presigned URL for that film.
+- Request playback for a film they own. The API returns a short-lived presigned URL for the private S3 video.
 
 ## Main workflow
 
@@ -32,7 +32,7 @@ Independent films can be difficult to discover in large streaming catalogs, whil
 4. In demo mode, the local demo completion route marks the order paid. In Razorpay mode, the server creates a Razorpay order and the browser opens Razorpay Checkout.
 5. The server verifies the Razorpay payment signature and checks the payment status. A signed Razorpay webhook can also update the order.
 6. Only a confirmed paid order adds the film ID to the user’s purchased collection.
-7. On playback, the API checks the signed-in user’s ownership before returning a five-minute S3 presigned URL. Without S3 configured, local demo mode can use the sample video URL instead.
+7. On playback, the API checks the signed-in user’s ownership before returning a five-minute S3 presigned URL. Local demo mode can use the sample video URL when S3 is not configured.
 
 ## Architecture
 
@@ -255,8 +255,8 @@ The repository’s `.gitignore` excludes `.env` files, `node_modules`, build out
 ## Verification status
 
 - **Verified locally:** frontend production build; account sign-in; demo purchase; film appearing in the user’s library; sample video playback.
-- **Verified:** the deployed application is reachable; Razorpay test-mode success and failure checkouts work; webhook deliveries work; and the purchased film appears in the deployed user’s library.
-- **Still required for a complete submission:** add the student name and demo-video link above; optionally configure private S3 with authorized video files to demonstrate protected playback; record the demo video; and complete the official submission form.
+- **Verified in the deployed app:** Razorpay test-mode success and failure checkouts; webhook deliveries; private S3 upload and playback; and the purchased film appearing in the user’s library.
+- **Still required for submission:** add the student name and demo-video link above; record the demo video; verify the app, repository, and video links in a private browser window; and complete the official submission form.
 
 ## End-term submission checklist
 
@@ -265,6 +265,7 @@ Before submission:
 - [ ] Add student name and demo-video link near the top of this README.
 - [ ] Ensure the repository is accessible to evaluators and contains no secrets.
 - [x] Add the GitHub repository and deployed app links.
+- [x] Configure private S3 upload and playback.
 - [ ] Verify the deployed app and demo video links in a private browser window.
 - [ ] Record a 3–5 minute video showing the problem, target user, main workflows, and the working app.
 - [ ] Complete the [official project submission form](https://forms.gle/sBy4sfqyiRG2Zpom9).
