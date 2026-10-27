@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowDown, ArrowLeft, ArrowRight, Check, ChevronDown, Clapperboard, Film, Menu, Play, Search, ShieldCheck, Sparkles, Ticket, Upload, X } from 'lucide-react';
-import { api, getToken } from './api.js';
+import { api, clearToken, getToken, setToken, TOKEN_STORAGE_KEY } from './api.js';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -11,17 +11,48 @@ function App() {
   const [toast, setToast] = useState('');
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const authSyncRef = useRef(0);
 
   useEffect(() => {
-    Promise.all([api('/media'), getToken() ? api('/auth/me') : Promise.resolve(null)])
-      .then(([catalog, session]) => { setFilms(catalog.media); if (session) setUser(session.user); })
+    const initialToken = getToken();
+    const requestId = ++authSyncRef.current;
+    Promise.all([api('/media'), initialToken ? api('/auth/me') : Promise.resolve(null)])
+      .then(([catalog, session]) => {
+        setFilms(catalog.media);
+        if (requestId === authSyncRef.current && getToken() === initialToken) setUser(session?.user || null);
+      })
       .catch((error) => setToast(error.message)).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    async function syncSessionAcrossTabs(event) {
+      if (event.key !== TOKEN_STORAGE_KEY) return;
+      const requestId = ++authSyncRef.current;
+      setAuthOpen(false);
+      if (!event.newValue) {
+        setUser(null);
+        setToast('You were signed out in another tab.');
+        return;
+      }
+      try {
+        const session = await api('/auth/me');
+        if (requestId === authSyncRef.current && getToken() === event.newValue) setUser(session.user);
+      } catch {
+        if (requestId === authSyncRef.current && getToken() === event.newValue) {
+          clearToken();
+          setUser(null);
+          setToast('Your sign-in expired. Please sign in again.');
+        }
+      }
+    }
+    window.addEventListener('storage', syncSessionAcrossTabs);
+    return () => window.removeEventListener('storage', syncSessionAcrossTabs);
   }, []);
 
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3400); return () => clearTimeout(t); } }, [toast]);
 
   function requestSignIn() { setAuthIntent('signin'); setAuthOpen(true); }
-  function signOut() { localStorage.removeItem('reelbox_token'); setUser(null); navigate('/'); setToast('You’re signed out.'); }
+  function signOut() { clearToken(); setUser(null); navigate('/'); setToast('You’re signed out.'); }
   async function purchase(film) {
     if (!user) { setAuthIntent('signin'); setAuthOpen(true); return; }
     try {
@@ -88,12 +119,12 @@ function App() {
       <Route path="/" element={<Home films={films} loading={loading} user={user} purchase={purchase} onSignIn={requestSignIn} />} />
       <Route path="/admin" element={<AdminUpload user={user} onSignIn={requestSignIn} onAdmin={(nextUser) => setUser(nextUser)} onCreated={filmCreated} />} />
       <Route path="/film/:id" element={<FilmDetails user={user} purchase={purchase} />} />
-      <Route path="/library" element={<Library user={user} onSignIn={requestSignIn} onToast={setToast} />} />
-      <Route path="/watch/:id" element={<Watch user={user} onSignIn={requestSignIn} onToast={setToast} />} />
+      <Route path="/library" element={<Library key={user?.id || 'guest'} user={user} onSignIn={requestSignIn} onToast={setToast} />} />
+      <Route path="/watch/:id" element={<Watch key={user?.id || 'guest'} user={user} onSignIn={requestSignIn} onToast={setToast} />} />
       <Route path="*" element={<main className="not-found"><span className="eyebrow">404 · LOST IN THE EDIT</span><h1>This scene isn’t in the cut.</h1><Link className="button button-primary" to="/">Back to the films <ArrowRight size={16} /></Link></main>} />
     </Routes>
     <Footer />
-    {authOpen && <AuthModal initialMode={authIntent} onClose={() => setAuthOpen(false)} onSuccess={(result) => { localStorage.setItem('reelbox_token', result.token); setUser(result.user); setAuthOpen(false); setToast('Welcome to Vidbox.'); }} />}
+    {authOpen && <AuthModal initialMode={authIntent} onClose={() => setAuthOpen(false)} onSuccess={(result) => { setToken(result.token); setUser(result.user); setAuthOpen(false); setToast('Welcome to Vidbox.'); }} />}
     {toast && <div className="toast" role="status"><span className="toast-dot" />{toast}<button onClick={() => setToast('')} aria-label="Dismiss"><X size={16} /></button></div>}
   </div>;
 }

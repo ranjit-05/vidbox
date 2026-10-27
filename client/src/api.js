@@ -1,5 +1,8 @@
 const API = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
-export const getToken = () => localStorage.getItem('reelbox_token');
+export const TOKEN_STORAGE_KEY = 'reelbox_token';
+export const getToken = () => localStorage.getItem(TOKEN_STORAGE_KEY);
+export const setToken = (token) => localStorage.setItem(TOKEN_STORAGE_KEY, token);
+export const clearToken = () => localStorage.removeItem(TOKEN_STORAGE_KEY);
 
 export async function api(path, options = {}) {
   const headers = { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}), ...options.headers };
