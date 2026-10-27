@@ -7,18 +7,21 @@ import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { randomUUID } from 'node:crypto';
 import { User, Media, Order } from './models.js';
 import { seedCatalog } from './catalog.js';
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
 const jwtSecret = process.env.JWT_SECRET?.trim();
+const maxVideoBytes = 250 * 1024 * 1024;
+const maxCatalogVideoBytes = 1024 * 1024 * 1024;
 if (!jwtSecret || jwtSecret === 'replace-with-a-long-random-secret') {
   throw new Error('Set a unique JWT_SECRET in server/.env before starting the API.');
 }
-const s3 = process.env.S3_BUCKET ? new S3Client({ region: process.env.AWS_REGION || 'ap-south-1' }) : null;
+const s3 = process.env.S3_BUCKET ? new S3Client({ region: process.env.AWS_REGION || 'ap-southeast-2' }) : null;
 
 app.use(helmet());
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173' }));
@@ -69,7 +72,12 @@ async function requireUser(req, res, next) {
 }
 
 function publicUser(user) {
-  return { id: user.id, email: user.email, purchasedVideoIds: user.purchasedVideoIds.map(String) };
+  return { id: user.id, email: user.email, isAdmin: user.isAdmin === true, purchasedVideoIds: user.purchasedVideoIds.map(String) };
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.user?.isAdmin) return res.status(403).json({ error: 'Admin access is required.' });
+  next();
 }
 
 function razorpayAuthorization() {
@@ -127,23 +135,79 @@ app.post('/api/auth/login', async (req, res, next) => {
   try {
     const user = await User.findOne({ email: String(req.body.email || '').trim().toLowerCase() }).select('+passwordHash');
     if (!user || !await bcrypt.compare(String(req.body.password || ''), user.passwordHash)) return res.status(401).json({ error: 'Email or password is incorrect.' });
-    await user.populate('purchasedVideoIds');
     res.json({ token: tokenFor(user), user: publicUser(user) });
   } catch (error) { next(error); }
 });
 app.get('/api/auth/me', requireUser, (req, res) => res.json({ user: publicUser(req.user) }));
 
+app.use('/api/admin', rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: false }));
+app.post('/api/admin/bootstrap', requireUser, async (req, res, next) => {
+  try {
+    const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+    if (!adminEmail) return res.status(503).json({ error: 'Set ADMIN_EMAIL in the server environment first.' });
+    if (req.user.email !== adminEmail) return res.status(403).json({ error: 'This account is not the configured admin account.' });
+    await User.updateOne({ _id: req.user.id }, { $set: { isAdmin: true } });
+    req.user.isAdmin = true;
+    res.json({ user: publicUser(req.user) });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/admin/uploads/presign', requireUser, requireAdmin, async (req, res, next) => {
+  try {
+    if (!s3 || !process.env.S3_BUCKET) return res.status(503).json({ error: 'Private S3 storage is not configured on the server.' });
+    const fileName = String(req.body.fileName || '').replace(/^.*[\\/]/, '').trim();
+    const contentType = String(req.body.contentType || '').toLowerCase();
+    const size = Number(req.body.size);
+    if (!fileName || contentType !== 'video/mp4') return res.status(400).json({ error: 'Choose an MP4 video file.' });
+    if (!Number.isSafeInteger(size) || size < 1 || size > maxVideoBytes) return res.status(400).json({ error: 'The video must be smaller than 250 MB.' });
+    const [usage] = await Media.aggregate([{ $group: { _id: null, total: { $sum: '$storageBytes' } } }]);
+    if ((usage?.total || 0) + size > maxCatalogVideoBytes) return res.status(400).json({ error: 'The Vidbox upload limit is 1 GB in total. Remove unused files before adding more.' });
+    const safeBase = fileName.replace(/\.mp4$/i, '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'film';
+    const storageKey = `videos/${randomUUID()}-${safeBase}.mp4`;
+    const command = new PutObjectCommand({ Bucket: process.env.S3_BUCKET, Key: storageKey, ContentType: contentType, ContentLength: size });
+    const uploadUrl = await getSignedUrl(s3, command, { signableHeaders: new Set(['content-type', 'content-length']), expiresIn: 300 });
+    res.json({ uploadUrl, storageKey, expiresIn: 300 });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/admin/media', requireUser, requireAdmin, async (req, res, next) => {
+  try {
+    if (!s3 || !process.env.S3_BUCKET) return res.status(503).json({ error: 'Private S3 storage is not configured on the server.' });
+    const { title, description, genre, year, duration, price, storageKey } = req.body;
+    if (typeof title !== 'string' || !title.trim() || title.trim().length > 120) return res.status(400).json({ error: 'Enter a film title (up to 120 characters).' });
+    if (typeof genre !== 'string' || !genre.trim() || genre.trim().length > 40) return res.status(400).json({ error: 'Enter a genre (up to 40 characters).' });
+    const numericYear = Number(year);
+    const numericPrice = Number(price);
+    if (!Number.isInteger(numericYear) || numericYear < 1888 || numericYear > new Date().getFullYear() + 1) return res.status(400).json({ error: 'Enter a valid release year.' });
+    if (!Number.isFinite(numericPrice) || numericPrice < 0 || numericPrice > 100000) return res.status(400).json({ error: 'Enter a price between ₹0 and ₹100,000.' });
+    if (typeof storageKey !== 'string' || !/^videos\/[a-f0-9-]{36}-[a-z0-9-]+\.mp4$/.test(storageKey)) return res.status(400).json({ error: 'The uploaded video reference is invalid. Please upload the file again.' });
+    const object = await s3.send(new HeadObjectCommand({ Bucket: process.env.S3_BUCKET, Key: storageKey }));
+    if (object.ContentType !== 'video/mp4' || !object.ContentLength || object.ContentLength > maxVideoBytes) return res.status(400).json({ error: 'The uploaded video could not be verified.' });
+    const [usage] = await Media.aggregate([{ $group: { _id: null, total: { $sum: '$storageBytes' } } }]);
+    if ((usage?.total || 0) + object.ContentLength > maxCatalogVideoBytes) return res.status(400).json({ error: 'The Vidbox upload limit is 1 GB in total. Remove unused files before adding more.' });
+    const media = await Media.create({
+      title: title.trim(),
+      description: String(description || '').trim().slice(0, 1000) || `${title.trim()} is now available in the Vidbox collection.`,
+      genre: genre.trim(), year: numericYear,
+      duration: String(duration || 'Unknown duration').trim().slice(0, 30),
+      price: numericPrice, storageKey, storageBytes: object.ContentLength, posterTone: 'violet', featured: false
+    });
+    const { _id, storageKey: hiddenKey, storageBytes: hiddenBytes, ...publicMedia } = media.toObject();
+    res.status(201).json({ media: { ...publicMedia, id: String(_id) } });
+  } catch (error) { next(error); }
+});
+
 app.get('/api/media', async (req, res, next) => {
   try {
     const media = await Media.find().sort({ featured: -1, createdAt: 1 }).lean();
-    res.json({ media: media.map(({ _id, storageKey, ...item }) => ({ ...item, id: String(_id) })) });
+    res.json({ media: media.map(({ _id, storageKey, storageBytes, ...item }) => ({ ...item, id: String(_id) })) });
   } catch (error) { next(error); }
 });
 app.get('/api/media/:id', async (req, res, next) => {
   try {
     const item = await Media.findById(req.params.id).lean();
     if (!item) return res.status(404).json({ error: 'Film not found.' });
-    const { _id, storageKey, ...rest } = item;
+    const { _id, storageKey, storageBytes, ...rest } = item;
     res.json({ media: { ...rest, id: String(_id) } });
   } catch (error) { next(error); }
 });
@@ -151,7 +215,7 @@ app.get('/api/media/:id', async (req, res, next) => {
 app.get('/api/library', requireUser, async (req, res, next) => {
   try {
     const media = await Media.find({ _id: { $in: req.user.purchasedVideoIds } }).lean();
-    res.json({ media: media.map(({ _id, storageKey, ...item }) => ({ ...item, id: String(_id) })) });
+    res.json({ media: media.map(({ _id, storageKey, storageBytes, ...item }) => ({ ...item, id: String(_id) })) });
   } catch (error) { next(error); }
 });
 
@@ -218,7 +282,9 @@ app.post('/api/orders/:id/verify', requireUser, async (req, res, next) => {
 
 app.post('/api/orders/:id/demo-complete', requireUser, async (req, res, next) => {
   try {
-    if (process.env.PAYMENT_MODE === 'razorpay') return res.status(403).json({ error: 'Demo payments are disabled.' });
+    if (process.env.NODE_ENV === 'production' || process.env.PAYMENT_MODE === 'razorpay') {
+      return res.status(403).json({ error: 'Demo payments are disabled.' });
+    }
     const order = await Order.findOne({ _id: req.params.id, userId: req.user.id, provider: 'demo' });
     if (!order) return res.status(404).json({ error: 'Order not found.' });
     if (order.status === 'pending') {

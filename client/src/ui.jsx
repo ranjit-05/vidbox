@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, NavLink, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowDown, ArrowLeft, ArrowRight, Check, ChevronDown, Clapperboard, Film, Menu, Play, Search, ShieldCheck, Sparkles, Ticket, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, Check, ChevronDown, Clapperboard, Film, Menu, Play, Search, ShieldCheck, Sparkles, Ticket, Upload, X } from 'lucide-react';
 import { api, getToken } from './api.js';
 
 function App() {
@@ -76,10 +76,17 @@ function App() {
     checkout.open();
   }
 
+  function filmCreated(media) {
+    setFilms((current) => [media, ...current]);
+    navigate('/');
+    setToast(`${media.title} was added to the Vidbox collection.`);
+  }
+
   return <div className="app-shell">
     <Header user={user} onSignIn={requestSignIn} onSignOut={signOut} />
     <Routes>
       <Route path="/" element={<Home films={films} loading={loading} user={user} purchase={purchase} onSignIn={requestSignIn} />} />
+      <Route path="/admin" element={<AdminUpload user={user} onSignIn={requestSignIn} onAdmin={(nextUser) => setUser(nextUser)} onCreated={filmCreated} />} />
       <Route path="/film/:id" element={<FilmDetails user={user} purchase={purchase} />} />
       <Route path="/library" element={<Library user={user} onSignIn={requestSignIn} onToast={setToast} />} />
       <Route path="/watch/:id" element={<Watch user={user} onSignIn={requestSignIn} onToast={setToast} />} />
@@ -96,7 +103,7 @@ function Header({ user, onSignIn, onSignOut }) {
   return <header className="topbar"><div className="topbar-inner">
     <Link className="brand" to="/"><span className="brand-mark"><Clapperboard size={17} strokeWidth={2.3} /></span><span>vidbox<span className="brand-period">.</span></span></Link>
     <nav className={`nav-links ${menu ? 'nav-open' : ''}`}><NavLink end to="/" onClick={() => setMenu(false)}>Discover</NavLink><NavLink to="/library" onClick={() => setMenu(false)}>My library</NavLink></nav>
-    <div className="top-actions">{user ? <><span className="user-email">{user.email}</span><button className="avatar" title="Sign out" onClick={onSignOut}>{user.email.slice(0, 1).toUpperCase()}</button></> : <button className="button button-small button-outline" onClick={onSignIn}>Sign in</button>}<button className="menu-button" onClick={() => setMenu(!menu)} aria-label="Toggle menu"><Menu size={19} /></button></div>
+    <div className="top-actions">{user ? <><Link className="button button-small button-outline upload-nav" to="/admin" onClick={() => setMenu(false)}><Upload size={13} /> Add a film</Link><span className="user-email">{user.email}</span><button className="avatar" title="Sign out" onClick={onSignOut}>{user.email.slice(0, 1).toUpperCase()}</button></> : <button className="button button-small button-outline" onClick={onSignIn}>Sign in</button>}<button className="menu-button" onClick={() => setMenu(!menu)} aria-label="Toggle menu"><Menu size={19} /></button></div>
   </div></header>;
 }
 
@@ -195,6 +202,82 @@ function Watch({ user, onSignIn, onToast }) {
   if (loading) return <main className="watch-page"><div className="video-frame skeleton" /></main>;
   if (!video) return <main className="watch-error"><div className="empty-icon"><ShieldCheck size={23} /></div><h1>Not in your collection.</h1><p>Buy this film first, and it’ll be ready to stream here.</p><Link className="button button-primary" to="/">Explore films <ArrowRight size={16} /></Link></main>;
   return <main className="watch-page"><Link to="/library" className="back-link"><ArrowLeft size={15} /> Back to your library</Link><div className="video-frame"><video controls autoPlay playsInline src={video} poster="" onError={() => onToast('Could not load this video. The storage link may have expired or the file may be unavailable.')} /></div><div className="watch-caption"><div><div className="eyebrow">NOW PLAYING · {film?.genre?.toUpperCase()}</div><h1>{film?.title}</h1><p>{film?.description}</p></div><span className="private-badge"><ShieldCheck size={14} /> PRIVATE STREAM</span></div></main>;
+}
+
+function titleFromFile(fileName) {
+  return fileName.replace(/\.[^.]+$/, '').replace(/[._-]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function displayDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return 'Unknown duration';
+  const minutes = Math.round(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  return hours ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
+}
+
+function AdminUpload({ user, onSignIn, onAdmin, onCreated }) {
+  const [file, setFile] = useState(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
+  const [title, setTitle] = useState('');
+  const [duration, setDuration] = useState('Unknown duration');
+  const [price, setPrice] = useState('49');
+  const [description, setDescription] = useState('');
+  const [genre, setGenre] = useState('Independent');
+  const [year, setYear] = useState(String(new Date().getFullYear()));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  function chooseFile(event) {
+    const selected = event.target.files?.[0] || null;
+    setFile(selected);
+    setError('');
+    if (!selected) return;
+    setTitle(titleFromFile(selected.name));
+    setYear(String(new Date().getFullYear()));
+    setDescription('');
+    setDuration('Reading video length…');
+    const url = URL.createObjectURL(selected);
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => { setDuration(displayDuration(video.duration)); URL.revokeObjectURL(url); };
+    video.onerror = () => { setDuration('Unknown duration'); URL.revokeObjectURL(url); };
+    video.src = url;
+  }
+
+  async function enableAdmin() {
+    setBusy(true); setError('');
+    try { const result = await api('/admin/bootstrap', { method: 'POST', body: JSON.stringify({}) }); onAdmin(result.user); }
+    catch (requestError) { setError(requestError.message); }
+    finally { setBusy(false); }
+  }
+
+  async function submit(event) {
+    event.preventDefault(); setBusy(true); setError('');
+    try {
+      const contentType = file.type || 'video/mp4';
+      const signed = await api('/admin/uploads/presign', { method: 'POST', body: JSON.stringify({ fileName: file.name, contentType, size: file.size }) });
+      const uploaded = await fetch(signed.uploadUrl, { method: 'PUT', headers: { 'Content-Type': contentType }, body: file });
+      if (!uploaded.ok) throw new Error('The video upload did not finish. Check S3 permissions and try again.');
+      const result = await api('/admin/media', { method: 'POST', body: JSON.stringify({ title, description, genre, year, duration, price, storageKey: signed.storageKey }) });
+      onCreated(result.media);
+      setFile(null); setTitle(''); setDuration('Unknown duration'); setFileInputKey((current) => current + 1);
+    } catch (requestError) { setError(requestError.message || 'The video could not be added. Please try again.'); }
+    finally { setBusy(false); }
+  }
+
+  if (!user) return <main className="admin-page section-wrap"><div className="eyebrow">VIDBOX STUDIO</div><h1>Sign in to add a film.</h1><button className="button button-primary" onClick={onSignIn}>Sign in <ArrowRight size={16} /></button></main>;
+
+  if (!user.isAdmin) return <main className="admin-page section-wrap"><div className="eyebrow">ONE-TIME SETUP</div><h1>Set up your <em>film uploader.</em></h1><p className="admin-lead">First, add your existing Vidbox sign-in email as <code>ADMIN_EMAIL</code> in the server environment. Then return here and enable uploads for this account. This keeps film uploads limited to your account.</p>{error && <div className="form-error admin-error">{error}</div>}<button className="button button-primary" onClick={enableAdmin} disabled={busy}>{busy ? 'Setting up…' : 'Enable uploads for my account'} <ArrowRight size={16} /></button></main>;
+
+  return <main className="admin-page section-wrap"><div className="eyebrow">VIDBOX STUDIO <span className="heading-line" /></div><h1>Add a film, <em>in one go.</em></h1><p className="admin-lead">Choose the MP4. Vidbox fills in the title and duration, creates a private S3 file name, uploads it, and adds it to the catalog. Each file can be up to 250 MB; the uploader allows up to 1 GB of catalog videos in total.</p><form className="upload-form" onSubmit={submit}>
+    <label className="upload-file-field">Video file <input key={fileInputKey} type="file" accept="video/mp4,.mp4" required onChange={chooseFile} /><span>{file ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MB · ${duration}` : 'Choose an MP4 video (up to 250 MB)'}</span></label>
+    <div className="upload-field-grid"><label>Film title<input required maxLength={120} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Filled in from the file name" /></label><label>Price in rupees<input required type="number" min="0" max="100000" step="1" value={price} onChange={(event) => setPrice(event.target.value)} /></label><label>Genre<input required maxLength={40} value={genre} onChange={(event) => setGenre(event.target.value)} /></label><label>Release year<input required type="number" min="1888" max={new Date().getFullYear() + 1} value={year} onChange={(event) => setYear(event.target.value)} /></label></div>
+    <label>Description <span className="optional-label">optional</span><textarea maxLength={1000} rows="3" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Add a short description, or leave blank for a simple default." /></label>
+    <div className="upload-duration"><Film size={15} /> Detected length: {duration}</div>
+    {error && <div className="form-error">{error}</div>}
+    <button className="button button-primary upload-submit" disabled={busy || !file}>{busy ? 'Uploading video and adding film…' : 'Upload and add to Vidbox'} <Upload size={15} /></button>
+    <p className="upload-privacy"><ShieldCheck size={14} /> The video stays private. Viewers receive a temporary watch link only after purchase.</p>
+  </form></main>;
 }
 
 function AuthModal({ initialMode, onClose, onSuccess }) {

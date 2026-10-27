@@ -1,8 +1,8 @@
 [
   {
     "AllowedHeaders": ["Range", "Authorization", "Content-Type"],
-    "AllowedMethods": ["GET", "HEAD"],
-    "AllowedOrigins": ["http://localhost:5173"],
+    "AllowedMethods": ["GET", "HEAD", "PUT"],
+    "AllowedOrigins": ["http://localhost:5173", "https://vidbox-delta.vercel.app"],
     "ExposeHeaders": ["Accept-Ranges", "Content-Range", "Content-Length", "Content-Type"],
     "MaxAgeSeconds": 3000
   }

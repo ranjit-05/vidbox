@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   passwordHash: { type: String, required: true, select: false },
+  isAdmin: { type: Boolean, default: false },
   purchasedVideoIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Media' }]
 }, { timestamps: true });
 
@@ -14,6 +15,7 @@ const mediaSchema = new mongoose.Schema({
   duration: { type: String, required: true },
   price: { type: Number, required: true, min: 0 },
   storageKey: { type: String, required: true },
+  storageBytes: { type: Number, default: 0, min: 0 },
   posterTone: { type: String, default: 'ember' },
   featured: { type: Boolean, default: false }
 }, { timestamps: true });

@@ -178,23 +178,26 @@ See Razorpay’s [Standard Checkout documentation](https://razorpay.com/docs/pay
 
 ## Private S3 video storage
 
-The S3 bucket should keep **Block all public access** enabled. The server checks the user’s ownership before generating a presigned `GetObject` URL, valid for five minutes.
+The S3 bucket should keep **Block all public access** enabled. The server checks the user’s ownership before generating a presigned `GetObject` URL, valid for five minutes. Signed-in administrators can add a film from **Add a film** in the Vidbox header. The form uploads an MP4 directly to S3, derives a suggested title from the filename, detects its duration, generates a unique private object key, and creates the MongoDB catalog entry. Each upload is limited to 250 MB, and the uploader limits catalog video storage to 1 GB total as a demo safeguard.
 
 1. Create a private S3 bucket. Use a region and bucket name that you will configure in the server environment.
-2. Upload your authorized video files using the object keys in `server/src/catalog.js`, for example `videos/the-last-light.mp4`.
-3. Configure the bucket’s CORS rules from `infrastructure/s3-cors.json`. The provided file allows `http://localhost:5173`; change `AllowedOrigins` to the exact frontend origin when deployed.
-4. Give the server AWS identity read access to the video objects only. For local development, put AWS credentials in `server/.env`. For deployment, prefer a role or the host’s secure environment-variable feature.
-5. Set these server variables and restart the API:
+2. Configure the bucket’s CORS rules from `infrastructure/s3-cors.json`. It allows `GET`, `HEAD`, and `PUT` from the local and deployed Vidbox origins. Keep `AllowedOrigins` limited to the exact frontend sites you use.
+3. Give the server identity only `s3:GetObject` and `s3:PutObject` on `arn:aws:s3:::YOUR_BUCKET/videos/*`. The policy template for the current bucket is `infrastructure/vidbox-render-s3-upload-policy.json`. Do not grant public access, `s3:*`, or bucket-wide listing. For local development, keep AWS credentials in the ignored `server/.env`; for deployment, put them in the server host’s secret settings.
+4. Set these server variables and restart the API:
 
    ```env
-   AWS_REGION=your-bucket-region
-   S3_BUCKET=your-bucket-name
+   AWS_REGION=ap-southeast-2
+   S3_BUCKET=vidbox-media-7987357f
    AWS_ACCESS_KEY_ID=your-access-key
    AWS_SECRET_ACCESS_KEY=your-secret-key
+   ADMIN_EMAIL=the-email-of-your-existing-vidbox-account
    ```
 
-6. Ensure the film’s database record has the matching `storageKey`. The seed runs only when the collection is empty; editing `server/src/catalog.js` alone does not update records already stored in MongoDB.
-7. Purchase the film and start playback. The video object should remain private; the player receives only the temporary signed URL after the API confirms ownership.
+5. Sign in with the existing account whose email is in `ADMIN_EMAIL`. Choose **Add a film**, then **Enable uploads for my account** once. This saves the admin permission to that user record.
+6. To add a film, choose its MP4, review the suggested title and detected duration, set the price, and select **Upload and add to Vidbox**. Vidbox creates both the private S3 object and its catalog record; you do not need to enter an S3 key or match filenames manually.
+7. Purchase the film and start playback. The video object stays private; the player receives only the temporary signed URL after the API confirms ownership.
+
+The seeded sample catalog records are illustrative and have no matching S3 videos. Uploading from **Add a film** creates new catalog records; it does not replace the sample records. The app currently does not verify email ownership, so set `ADMIN_EMAIL` to your existing, already registered account email.
 
 AWS documentation: [Block public access](https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html), [presigned URLs](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html), and [S3 CORS](https://docs.aws.amazon.com/AmazonS3/latest/userguide/cors.html).
 
@@ -208,13 +211,14 @@ Set secrets in `server/.env` locally or in the server host’s secret/environmen
 | `CLIENT_ORIGIN` | Exact frontend origin allowed by API CORS |
 | `MONGODB_URI` | MongoDB connection string |
 | `JWT_SECRET` | Random private secret for signing seven-day session tokens |
+| `ADMIN_EMAIL` | Existing Vidbox account email allowed to enable the upload page |
 | `PAYMENT_MODE` | `demo` for local simulated checkout or `razorpay` for Razorpay Checkout |
 | `RAZORPAY_KEY_ID` | Razorpay Key ID; sent to Checkout when Razorpay mode is enabled |
 | `RAZORPAY_KEY_SECRET` | Server-only Razorpay API secret |
 | `RAZORPAY_WEBHOOK_SECRET` | Server-only secret used to authenticate Razorpay webhook payloads |
 | `AWS_REGION` | S3 bucket region |
 | `S3_BUCKET` | Private S3 bucket name; blank uses demo playback instead |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Local AWS credentials; use a role when supported by the deployment host |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Restricted server-side AWS credentials; never expose these in the frontend |
 | `DEMO_VIDEO_URL` | Development sample video URL when S3 is not configured |
 | `VITE_API_URL` | Frontend API base URL; local default is `http://localhost:4000/api` |
 
