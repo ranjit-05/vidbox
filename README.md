@@ -9,7 +9,7 @@ Fill in the remaining links and your name before submitting:
 - **Student name:** Add your name
 - **GitHub repository:** [https://github.com/ranjit-05/vidbox](https://github.com/ranjit-05/vidbox)
 - **Deployed application:** [https://vidbox-delta.vercel.app](https://vidbox-delta.vercel.app)
-- **Demo video:** [https://drive.google.com/file/d/1Cs-wjIj94TnK6t8D15oisrgqP7NPI3e7/view?usp=drive_link)
+- **Demo video:** [drive_link](https://drive.google.com/file/d/1Cs-wjIj94TnK6t8D15oisrgqP7NPI3e7/view?usp=drive_link)
 
 ## Problem and target users
 
