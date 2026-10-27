@@ -178,7 +178,7 @@ See Razorpay’s [Standard Checkout documentation](https://razorpay.com/docs/pay
 
 ## Private S3 video storage
 
-The S3 bucket should keep **Block all public access** enabled. The server checks the user’s ownership before generating a presigned `GetObject` URL, valid for five minutes. Signed-in administrators can add a film from **Add a film** in the Vidbox header. The form uploads an MP4 directly to S3, derives a suggested title from the filename, detects its duration, generates a unique private object key, and creates the MongoDB catalog entry. Each upload is limited to 250 MB, and the uploader limits catalog video storage to 1 GB total as a demo safeguard.
+The S3 bucket should keep **Block all public access** enabled. The server checks the user’s ownership before generating a presigned `GetObject` URL, valid for five minutes. Signed-in administrators can add a film from **Add a film** in the Vidbox header. The form uploads an MP4 directly to S3, derives a suggested title from the filename, detects its duration, generates a unique private object key, and creates the MongoDB catalog entry. Each upload is limited to 1 GB, and the uploader limits catalog video storage to 5 GB total as a demo safeguard.
 
 1. Create a private S3 bucket. Use a region and bucket name that you will configure in the server environment.
 2. Configure the bucket’s CORS rules from `infrastructure/s3-cors.json`. It allows `GET`, `HEAD`, and `PUT` from the local and deployed Vidbox origins. Keep `AllowedOrigins` limited to the exact frontend sites you use.

@@ -16,8 +16,8 @@ import { seedCatalog } from './catalog.js';
 const app = express();
 const port = Number(process.env.PORT || 4000);
 const jwtSecret = process.env.JWT_SECRET?.trim();
-const maxVideoBytes = 250 * 1024 * 1024;
-const maxCatalogVideoBytes = 1024 * 1024 * 1024;
+const maxVideoBytes = 1024 * 1024 * 1024;
+const maxCatalogVideoBytes = 5 * 1024 * 1024 * 1024;
 if (!jwtSecret || jwtSecret === 'replace-with-a-long-random-secret') {
   throw new Error('Set a unique JWT_SECRET in server/.env before starting the API.');
 }
@@ -159,9 +159,9 @@ app.post('/api/admin/uploads/presign', requireUser, requireAdmin, async (req, re
     const contentType = String(req.body.contentType || '').toLowerCase();
     const size = Number(req.body.size);
     if (!fileName || contentType !== 'video/mp4') return res.status(400).json({ error: 'Choose an MP4 video file.' });
-    if (!Number.isSafeInteger(size) || size < 1 || size > maxVideoBytes) return res.status(400).json({ error: 'The video must be smaller than 250 MB.' });
+    if (!Number.isSafeInteger(size) || size < 1 || size > maxVideoBytes) return res.status(400).json({ error: 'The video must be 1 GB or smaller.' });
     const [usage] = await Media.aggregate([{ $group: { _id: null, total: { $sum: '$storageBytes' } } }]);
-    if ((usage?.total || 0) + size > maxCatalogVideoBytes) return res.status(400).json({ error: 'The Vidbox upload limit is 1 GB in total. Remove unused files before adding more.' });
+    if ((usage?.total || 0) + size > maxCatalogVideoBytes) return res.status(400).json({ error: 'The Vidbox upload limit is 5 GB in total. Remove unused files before adding more.' });
     const safeBase = fileName.replace(/\.mp4$/i, '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'film';
     const storageKey = `videos/${randomUUID()}-${safeBase}.mp4`;
     const command = new PutObjectCommand({ Bucket: process.env.S3_BUCKET, Key: storageKey, ContentType: contentType, ContentLength: size });
@@ -184,7 +184,7 @@ app.post('/api/admin/media', requireUser, requireAdmin, async (req, res, next) =
     const object = await s3.send(new HeadObjectCommand({ Bucket: process.env.S3_BUCKET, Key: storageKey }));
     if (object.ContentType !== 'video/mp4' || !object.ContentLength || object.ContentLength > maxVideoBytes) return res.status(400).json({ error: 'The uploaded video could not be verified.' });
     const [usage] = await Media.aggregate([{ $group: { _id: null, total: { $sum: '$storageBytes' } } }]);
-    if ((usage?.total || 0) + object.ContentLength > maxCatalogVideoBytes) return res.status(400).json({ error: 'The Vidbox upload limit is 1 GB in total. Remove unused files before adding more.' });
+    if ((usage?.total || 0) + object.ContentLength > maxCatalogVideoBytes) return res.status(400).json({ error: 'The Vidbox upload limit is 5 GB in total. Remove unused files before adding more.' });
     const media = await Media.create({
       title: title.trim(),
       description: String(description || '').trim().slice(0, 1000) || `${title.trim()} is now available in the Vidbox collection.`,
